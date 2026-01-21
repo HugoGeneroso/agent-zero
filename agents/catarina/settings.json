@@ -1,0 +1,14 @@
+{
+    "chat_model": {
+        "provider": "openrouter",
+        "name": "moonshotai/kimi-k2-0905"
+    },
+    "utility_model": {
+        "provider": "openrouter",
+        "name": "moonshotai/kimi-k2-0905"
+    },
+    "embeddings_model": {
+        "provider": "openai",
+        "name": "text-embedding-3-small"
+    }
+}
