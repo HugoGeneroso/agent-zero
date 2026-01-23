@@ -6,3 +6,4 @@ transformers<4.48.0
 accelerate<1.2.0
 ml-dtypes==0.3.2
 onnx<1.18.0
+faiss-cpu==1.8.0
