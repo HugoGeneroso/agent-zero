@@ -1,2 +1,8 @@
 litellm==1.79.3
 openai==1.99.5
+numpy==1.26.4
+scipy<1.13.0
+transformers<4.48.0
+accelerate<1.2.0
+ml-dtypes==0.3.2
+onnx<1.18.0
