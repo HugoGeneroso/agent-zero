@@ -3,29 +3,26 @@ FROM agent0ai/agent-zero-base:latest
 ARG BRANCH=local
 ENV BRANCH=$BRANCH
 
+# Copy all files first
 COPY ./docker/run/fs/ /
 COPY ./ /git/agent-zero
 
-RUN bash /ins/pre_install.sh $BRANCH
-RUN bash /ins/install_A0.sh $BRANCH
-RUN bash /ins/install_additional.sh $BRANCH
-
-ARG CACHE_DATE=none
-RUN echo "cache buster $CACHE_DATE" && bash /ins/install_A02.sh $BRANCH
-RUN bash /ins/post_install.sh $BRANCH
+# Run installation scripts (skipping install_A02.sh which just re-runs install_A0.sh)
+RUN bash /ins/pre_install.sh $BRANCH && \
+    bash /ins/install_A0.sh $BRANCH && \
+    bash /ins/install_additional.sh $BRANCH && \
+    bash /ins/post_install.sh $BRANCH
 
 # ===========================================================================
-# CORREÇÃO CRÍTICA: numpy/scipy incompatibilidade (DEVE ser APÓS install_A0)
-# O install_A0.sh roda "uv pip install -r requirements.txt" que reinstala
-# versões incompatíveis. Forçamos versões compatíveis DEPOIS de tudo.
+# CORREÇÃO: numpy/scipy incompatibilidade
 # ===========================================================================
 RUN /opt/venv-a0/bin/pip uninstall -y numpy scipy scikit-learn 2>/dev/null || true && \
-    /opt/venv-a0/bin/pip install --no-cache-dir "numpy==1.26.4" "scipy==1.12.0" "scikit-learn==1.4.2"
+    /opt/venv-a0/bin/pip install --no-cache-dir "numpy==1.26.4" "scipy==1.12.0" "scikit-learn==1.4.2" && \
+    /opt/venv-a0/bin/pip cache purge
 
 EXPOSE 22 80 9000-9009
 RUN chmod +x /exe/initialize.sh /exe/run_A0.sh /exe/run_searxng.sh /exe/run_tunnel_api.sh
 
-# Railway usa essa variável para o healthcheck e roteamento
 ENV PORT=80
 
 CMD ["/exe/initialize.sh", "local"]
