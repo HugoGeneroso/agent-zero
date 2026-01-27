@@ -3,6 +3,26 @@ UAZAPI Webhook Endpoint for Agent Zero.
 
 This API endpoint receives WhatsApp webhooks from UAZAPI and routes them
 to Agent Zero's monologue loop for processing.
+
+UAZAPI Webhook Format (real):
+{
+    "EventType": "messages",
+    "message": {
+        "chatid": "5517991317923@s.whatsapp.net",
+        "text": "Hello",
+        "content": "Hello",
+        "fromMe": false,
+        "sender": "5517991317923@s.whatsapp.net",
+        "senderName": "Hugo Generoso",
+        ...
+    },
+    "chat": {
+        "phone": "+55 17 99131-7923",
+        "name": "Hugo Generoso",
+        ...
+    },
+    ...
+}
 """
 
 from agent import AgentContext, UserMessage, AgentContextType
@@ -10,6 +30,7 @@ from python.helpers.api import ApiHandler, Request, Response
 from python.helpers.print_style import PrintStyle
 from initialize import initialize_agent
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +53,7 @@ class UazapiWebhook(ApiHandler):
 
     @classmethod
     def requires_api_key(cls) -> bool:
-        return False  # UAZAPI sends its own signature, we trust the webhook URL
+        return False  # UAZAPI sends its own token, we trust the webhook URL
 
     @classmethod
     def get_methods(cls) -> list[str]:
@@ -41,60 +62,73 @@ class UazapiWebhook(ApiHandler):
     async def process(self, input: dict, request: Request) -> dict | Response:
         """Process incoming UAZAPI webhook."""
         
-        # Extract event type
-        event_type = input.get("event", "")
+        # UAZAPI uses "EventType" (capitalized)
+        event_type = input.get("EventType", "") or input.get("event", "")
         
         # Only process incoming messages
-        if event_type != "messages.upsert":
+        if event_type not in ["messages", "messages.upsert"]:
             return {"ok": True, "ignored": True, "reason": f"Event type: {event_type}"}
         
-        # Extract message data
-        # UAZAPI format: data.message contains the message object
-        message_data = input.get("data", {}).get("message", {})
+        # Extract message data - UAZAPI puts it directly in "message" field
+        message_data = input.get("message", {})
+        chat_data = input.get("chat", {})
         
-        # Get phone number (remove @c.us suffix if present)
-        phone_raw = message_data.get("from", "") or message_data.get("key", {}).get("remoteJid", "")
-        phone = phone_raw.replace("@c.us", "").replace("@g.us", "")
+        if not message_data:
+            # Fallback: try old format
+            message_data = input.get("data", {}).get("message", {})
+        
+        # Check if message is from self (outgoing) - ignore FIRST
+        from_me = message_data.get("fromMe", False)
+        if from_me:
+            return {"ok": True, "ignored": True, "reason": "From self"}
+        
+        # Get phone number from UAZAPI format
+        # UAZAPI provides: chatid = "5517991317923@s.whatsapp.net"
+        # or sender = "5517991317923@s.whatsapp.net"
+        phone_raw = (
+            message_data.get("chatid", "") or 
+            message_data.get("sender", "") or
+            message_data.get("from", "") or
+            chat_data.get("wa_chatid", "")
+        )
+        
+        # Clean phone number - remove @s.whatsapp.net, @c.us, @g.us
+        phone = re.sub(r'@(s\.whatsapp\.net|c\.us|g\.us)$', '', phone_raw)
         
         if not phone:
             logger.warning("Webhook received without phone number")
             return {"ok": True, "ignored": True, "reason": "No phone"}
         
-        # Get message text
-        # UAZAPI can have text in different places depending on message type
+        # Get message text - UAZAPI uses both "text" and "content"
         text = (
-            message_data.get("body", "") or
             message_data.get("text", "") or
-            message_data.get("conversation", "") or
-            message_data.get("message", {}).get("conversation", "") or
-            message_data.get("message", {}).get("extendedTextMessage", {}).get("text", "")
+            message_data.get("content", "") or
+            message_data.get("body", "") or
+            message_data.get("conversation", "")
         )
         
-        # Handle interactive message responses (button/list selections)
+        # Handle button/list interactive responses
         if not text:
-            # Check for button response
-            button_response = message_data.get("buttonsResponseMessage", {})
-            if button_response:
-                text = button_response.get("selectedButtonId", "") or button_response.get("selectedDisplayText", "")
-            
-            # Check for list response
-            list_response = message_data.get("listResponseMessage", {})
-            if list_response:
-                text = list_response.get("singleSelectReply", {}).get("selectedRowId", "") or list_response.get("title", "")
+            button_id = message_data.get("buttonOrListid", "")
+            if button_id:
+                text = button_id
         
         if not text:
             logger.info(f"No text in message from {phone[:6]}...")
             return {"ok": True, "ignored": True, "reason": "No text content"}
         
-        # Check if message is from self (outgoing) - ignore
-        from_me = message_data.get("key", {}).get("fromMe", False) or message_data.get("fromMe", False)
-        if from_me:
-            return {"ok": True, "ignored": True, "reason": "From self"}
+        # Get sender name for context
+        sender_name = (
+            message_data.get("senderName", "") or
+            chat_data.get("name", "") or
+            chat_data.get("wa_name", "") or
+            "Unknown"
+        )
         
         # Log incoming message
         PrintStyle(
             background_color="#25D366", font_color="white", bold=True, padding=True
-        ).print(f"WhatsApp message from {phone[:6]}...")
+        ).print(f"📱 WhatsApp: {sender_name} ({phone[-4:]})")
         PrintStyle(font_color="white", padding=False).print(f"> {text[:100]}")
         
         try:
@@ -111,16 +145,19 @@ class UazapiWebhook(ApiHandler):
                 context = AgentContext(
                     config=config,
                     id=phone,
-                    name=f"WhatsApp: {phone}",
+                    name=f"WhatsApp: {sender_name}",
                     type=AgentContextType.USER,
                     set_current=True
                 )
-                PrintStyle().print(f"Created new context for {phone[:6]}...")
+                PrintStyle().print(f"✨ Created new context for {sender_name}")
             else:
                 AgentContext.set_current(phone)
             
             # Store phone in context data for whatsapp_send tool
             context.set_data("current_phone", phone)
+            
+            # Store sender name for personalization
+            context.set_data("sender_name", sender_name)
             
             # Store original message data for reference
             context.set_data("last_message_data", message_data)
@@ -128,7 +165,7 @@ class UazapiWebhook(ApiHandler):
             # Log the message in context
             context.log.log(
                 type="user",
-                heading="WhatsApp message",
+                heading=f"WhatsApp: {sender_name}",
                 content=text,
             )
             
@@ -139,9 +176,14 @@ class UazapiWebhook(ApiHandler):
             # Wait for agent response
             result = await task.result()
             
+            PrintStyle(
+                background_color="#25D366", font_color="white", bold=True, padding=True
+            ).print(f"✅ Response sent to {sender_name}")
+            
             return {
                 "ok": True,
                 "context_id": phone,
+                "sender_name": sender_name,
                 "message_received": text[:50],
                 "response": result
             }
