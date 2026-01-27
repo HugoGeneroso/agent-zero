@@ -107,11 +107,15 @@ class UazapiWebhook(ApiHandler):
             message_data.get("conversation", "")
         )
         
+        # Ensure text is a string (sometimes UAZAPI sends dict/object)
+        if not isinstance(text, str):
+            text = str(text) if text else ""
+        
         # Handle button/list interactive responses
         if not text:
             button_id = message_data.get("buttonOrListid", "")
             if button_id:
-                text = button_id
+                text = str(button_id)
         
         if not text:
             logger.info(f"No text in message from {phone[:6]}...")
@@ -129,7 +133,7 @@ class UazapiWebhook(ApiHandler):
         PrintStyle(
             background_color="#25D366", font_color="white", bold=True, padding=True
         ).print(f"📱 WhatsApp: {sender_name} ({phone[-4:]})")
-        PrintStyle(font_color="white", padding=False).print(f"> {text[:100]}")
+        PrintStyle(font_color="white", padding=False).print(f"> {str(text)[:100]}")
         
         try:
             # Get or create context for this phone number
