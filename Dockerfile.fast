@@ -1,0 +1,18 @@
+# Dockerfile para deploy RÁPIDO no Railway
+# Usa a imagem base oficial + copia apenas os arquivos customizados
+# Deploy: ~1-2 minutos ao invés de 13+
+
+FROM agent0ai/agent-zero:latest
+
+# Copia apenas os arquivos customizados (agente Catarina, webhook, etc)
+COPY ./agents/catarina /a0/agents/catarina
+COPY ./python/api/uazapi_webhook.py /a0/python/api/uazapi_webhook.py
+
+# Correção numpy/scipy (se ainda necessário na imagem base)
+RUN /opt/venv-a0/bin/pip uninstall -y numpy scipy scikit-learn 2>/dev/null || true && \
+    /opt/venv-a0/bin/pip install --no-cache-dir "numpy==1.26.4" "scipy==1.12.0" "scikit-learn==1.4.2" && \
+    /opt/venv-a0/bin/pip cache purge || true
+
+ENV PORT=80
+
+# Usa o entrypoint padrão da imagem
