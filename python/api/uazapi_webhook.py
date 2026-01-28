@@ -28,6 +28,7 @@ UAZAPI Webhook Format (real):
 from agent import AgentContext, UserMessage, AgentContextType
 from python.helpers.api import ApiHandler, Request, Response
 from python.helpers.print_style import PrintStyle
+from python.helpers.projects import activate_project
 from initialize import initialize_agent
 import logging
 import re
@@ -233,7 +234,14 @@ class UazapiWebhook(ApiHandler):
                     type=AgentContextType.USER,
                     set_current=True
                 )
-                PrintStyle().print(f"✨ Created new context for {sender_name}")
+                
+                # Associate context with Catarina project
+                try:
+                    activate_project(phone, "catarina")
+                    PrintStyle().print(f"✨ Created new context for {sender_name} [Project: catarina]")
+                except Exception as e:
+                    logger.warning(f"Could not activate catarina project: {e}")
+                    PrintStyle().print(f"✨ Created new context for {sender_name}")
             else:
                 AgentContext.set_current(phone)
             
