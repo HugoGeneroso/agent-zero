@@ -37,8 +37,15 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
-async def send_read_receipt(phone: str) -> bool:
-    """Mark the message as read (blue checkmarks) on WhatsApp."""
+async def send_read_receipt(message_id: str) -> bool:
+    """Mark the message as read (blue checkmarks) on WhatsApp.
+    
+    Uses UAZAPI endpoint: POST /message/markread
+    Requires message ID, not phone number.
+    """
+    if not message_id:
+        return False
+        
     try:
         base_url = os.environ.get("UAZAPI_BASE_URL", "").rstrip("/")
         token = os.environ.get("UAZAPI_INSTANCE_TOKEN", "")
@@ -48,9 +55,9 @@ async def send_read_receipt(phone: str) -> bool:
         
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                f"{base_url}/chat/markAsRead",
+                f"{base_url}/message/markread",
                 headers={"token": token, "Content-Type": "application/json"},
-                json={"phone": phone}
+                json={"id": [message_id]}  # API expects array of IDs
             )
             return response.status_code == 200
     except Exception as e:
@@ -139,6 +146,9 @@ class UazapiWebhook(ApiHandler):
         # Clean phone number - remove @s.whatsapp.net, @c.us, @g.us
         phone = re.sub(r'@(s\.whatsapp\.net|c\.us|g\.us)$', '', phone_raw)
         
+        # Get message ID for read receipt
+        message_id = message_data.get("id", "") or message_data.get("messageId", "")
+        
         if not phone:
             logger.warning("Webhook received without phone number")
             return {"ok": True, "ignored": True, "reason": "No phone"}
@@ -181,7 +191,7 @@ class UazapiWebhook(ApiHandler):
         
         # Send read receipt (blue checkmarks) and start typing indicator
         # This happens immediately when message is received, before processing
-        await send_read_receipt(phone)
+        await send_read_receipt(message_id)  # Uses message ID, not phone
         await send_typing_indicator(phone, duration_ms=10000)  # 10 seconds of typing
         
         try:
