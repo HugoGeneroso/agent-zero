@@ -65,8 +65,13 @@ async def send_read_receipt(message_id: str) -> bool:
         return False
 
 
-async def send_typing_indicator(phone: str, duration_ms: int = 5000) -> bool:
-    """Show 'typing...' indicator on WhatsApp."""
+async def send_typing_indicator(phone: str, duration_ms: int = 30000) -> bool:
+    """Show 'typing...' indicator on WhatsApp.
+    
+    Uses UAZAPI endpoint: POST /message/presence
+    Presence is automatically cancelled when a message is sent.
+    Max duration: 5 minutes (300000ms).
+    """
     try:
         base_url = os.environ.get("UAZAPI_BASE_URL", "").rstrip("/")
         token = os.environ.get("UAZAPI_INSTANCE_TOKEN", "")
@@ -76,9 +81,9 @@ async def send_typing_indicator(phone: str, duration_ms: int = 5000) -> bool:
         
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                f"{base_url}/chat/sendPresence",
+                f"{base_url}/message/presence",
                 headers={"token": token, "Content-Type": "application/json"},
-                json={"phone": phone, "presence": "composing", "delay": duration_ms}
+                json={"number": phone, "presence": "composing", "delay": duration_ms}
             )
             return response.status_code == 200
     except Exception as e:
