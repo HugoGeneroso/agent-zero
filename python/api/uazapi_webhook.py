@@ -31,8 +31,52 @@ from python.helpers.print_style import PrintStyle
 from initialize import initialize_agent
 import logging
 import re
+import os
+import httpx
 
 logger = logging.getLogger(__name__)
+
+
+async def send_read_receipt(phone: str) -> bool:
+    """Mark the message as read (blue checkmarks) on WhatsApp."""
+    try:
+        base_url = os.environ.get("UAZAPI_BASE_URL", "").rstrip("/")
+        token = os.environ.get("UAZAPI_INSTANCE_TOKEN", "")
+        
+        if not base_url or not token:
+            return False
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{base_url}/chat/markAsRead",
+                headers={"token": token, "Content-Type": "application/json"},
+                json={"phone": phone}
+            )
+            return response.status_code == 200
+    except Exception as e:
+        logger.warning(f"Failed to send read receipt: {e}")
+        return False
+
+
+async def send_typing_indicator(phone: str, duration_ms: int = 5000) -> bool:
+    """Show 'typing...' indicator on WhatsApp."""
+    try:
+        base_url = os.environ.get("UAZAPI_BASE_URL", "").rstrip("/")
+        token = os.environ.get("UAZAPI_INSTANCE_TOKEN", "")
+        
+        if not base_url or not token:
+            return False
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{base_url}/chat/sendPresence",
+                headers={"token": token, "Content-Type": "application/json"},
+                json={"phone": phone, "presence": "composing", "delay": duration_ms}
+            )
+            return response.status_code == 200
+    except Exception as e:
+        logger.warning(f"Failed to send typing indicator: {e}")
+        return False
 
 
 class UazapiWebhook(ApiHandler):
@@ -134,6 +178,11 @@ class UazapiWebhook(ApiHandler):
             background_color="#25D366", font_color="white", bold=True, padding=True
         ).print(f"📱 WhatsApp: {sender_name} ({phone[-4:]})")
         PrintStyle(font_color="white", padding=False).print(f"> {str(text)[:100]}")
+        
+        # Send read receipt (blue checkmarks) and start typing indicator
+        # This happens immediately when message is received, before processing
+        await send_read_receipt(phone)
+        await send_typing_indicator(phone, duration_ms=10000)  # 10 seconds of typing
         
         try:
             # Get or create context for this phone number
