@@ -44,6 +44,7 @@ async def send_read_receipt(message_id: str) -> bool:
     Requires message ID, not phone number.
     """
     if not message_id:
+        logger.warning("send_read_receipt: No message_id provided")
         return False
         
     try:
@@ -51,14 +52,17 @@ async def send_read_receipt(message_id: str) -> bool:
         token = os.environ.get("UAZAPI_INSTANCE_TOKEN", "")
         
         if not base_url or not token:
+            logger.warning("send_read_receipt: UAZAPI not configured")
             return False
         
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 f"{base_url}/message/markread",
                 headers={"token": token, "Content-Type": "application/json"},
-                json={"id": [message_id]}  # API expects array of IDs
+                json={"id": [message_id]}
             )
+            if response.status_code != 200:
+                logger.warning(f"send_read_receipt failed: {response.status_code} - {response.text}")
             return response.status_code == 200
     except Exception as e:
         logger.warning(f"Failed to send read receipt: {e}")
@@ -77,14 +81,20 @@ async def send_typing_indicator(phone: str, duration_ms: int = 30000) -> bool:
         token = os.environ.get("UAZAPI_INSTANCE_TOKEN", "")
         
         if not base_url or not token:
+            logger.warning("send_typing_indicator: UAZAPI not configured")
             return False
+        
+        payload = {"number": phone, "presence": "composing", "delay": duration_ms}
+        logger.info(f"Sending typing indicator: {payload}")
         
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 f"{base_url}/message/presence",
                 headers={"token": token, "Content-Type": "application/json"},
-                json={"number": phone, "presence": "composing", "delay": duration_ms}
+                json=payload
             )
+            if response.status_code != 200:
+                logger.warning(f"send_typing_indicator failed: {response.status_code} - {response.text}")
             return response.status_code == 200
     except Exception as e:
         logger.warning(f"Failed to send typing indicator: {e}")
@@ -194,10 +204,16 @@ class UazapiWebhook(ApiHandler):
         ).print(f"📱 WhatsApp: {sender_name} ({phone[-4:]})")
         PrintStyle(font_color="white", padding=False).print(f"> {str(text)[:100]}")
         
+        # Debug: log message_id and phone for troubleshooting
+        logger.info(f"Message ID: {message_id}, Phone: {phone}")
+        
         # Send read receipt (blue checkmarks) and start typing indicator
         # This happens immediately when message is received, before processing
-        await send_read_receipt(message_id)  # Uses message ID, not phone
-        await send_typing_indicator(phone, duration_ms=10000)  # 10 seconds of typing
+        read_result = await send_read_receipt(message_id)
+        typing_result = await send_typing_indicator(phone, duration_ms=60000)  # 60 seconds
+        
+        # Log results for debugging
+        logger.info(f"Read receipt result: {read_result}, Typing result: {typing_result}")
         
         try:
             # Get or create context for this phone number
